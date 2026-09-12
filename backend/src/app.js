@@ -1,5 +1,7 @@
 import express from "express";
 import cors from "cors";
+import cookieParser from "cookie-parser";
+import { corsOrigins } from "./config/env.js";
 import departmentRoutes from "./routes/departmentRoutes.js";
 import studentRoutes from "./routes/studentRoutes.js";
 import facultyRoutes from "./routes/facultyRoutes.js";
@@ -18,11 +20,12 @@ const app = express();
 
 app.use(
   cors({
-    origin: process.env.CLIENT_URL || "http://localhost:3000",
+    origin: corsOrigins(),
     credentials: true,
-  })
+  }),
 );
-app.use(express.json());
+app.use(cookieParser());
+app.use(express.json({ limit: "2mb" }));
 
 app.get("/", (req, res) => {
   res.json({
@@ -32,18 +35,23 @@ app.get("/", (req, res) => {
   });
 });
 
-app.get("/api/health", (req, res) => {
-  res.json({
+const healthResponse = (req, res) => {
+  res.status(200).json({
+    success: true,
     status: "OK",
     message: "SmartAttend API is healthy",
     timestamp: new Date().toISOString(),
     uptime: process.uptime(),
     databaseConfigured: Boolean(process.env.DATABASE_URL),
   });
-});
+};
+
+app.get("/health", healthResponse);
+app.get("/api/health", healthResponse);
 
 app.use("/api/departments", departmentRoutes);
 app.use("/api/students", studentRoutes);
+app.use("/api/faculty", facultyApiRoutes);
 app.use("/api/faculty", facultyRoutes);
 app.use("/api/subjects", subjectRoutes);
 app.use("/api/classes", classRoutes);
@@ -54,6 +62,13 @@ app.use("/api/auth", authRoutes);
 app.use("/api/admin", adminRoutes);
 app.use("/api/student", studentApiRoutes);
 app.use("/api/student", studentDeviceRoutes);
-app.use("/api/faculty", facultyApiRoutes);
+
+app.use((err, req, res, next) => {
+  console.error("GLOBAL ERROR:", err);
+  res.status(err.statusCode || 500).json({
+    success: false,
+    message: err.message || "Internal Server Error",
+  });
+});
 
 export default app;

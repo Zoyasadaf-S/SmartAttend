@@ -70,7 +70,7 @@ const getApiBase = () => {
   }
   return process.env.BACKEND_INTERNAL_URL 
     ? `${process.env.BACKEND_INTERNAL_URL}/api`
-    : 'http://localhost:5000/api';
+    : 'http://localhost:5001/api';
 };
 
 /**
@@ -101,8 +101,8 @@ export async function checkBackendHealth(): Promise<BackendHealth> {
 
   return {
     status: 'DOWN',
-    message: 'Backend API is currently offline (using demo data)',
-    isFallback: true,
+    message: 'Backend API is currently offline',
+    isFallback: false,
   };
 }
 
@@ -129,8 +129,14 @@ export async function getStudents(
     const res = await fetch(endpoint, {
       method: 'GET',
       headers,
-      signal: AbortSignal.timeout(4000),
+      credentials: 'include',
+      signal: AbortSignal.timeout(8000),
     });
+
+    if (res.status === 401 && typeof window !== 'undefined') {
+      window.location.assign('/admin/login');
+      throw new Error('Authentication session is no longer valid');
+    }
 
     if (res.ok) {
       const json = await res.json();
@@ -139,7 +145,7 @@ export async function getStudents(
           students: json.data.map((s: any) => ({
             id: s.id,
             name: s.name,
-            usn: s.usn,
+            usn: s.usn || s.registerNumber,
             department: s.department,
             semester: s.semester,
             section: s.section,
@@ -149,7 +155,7 @@ export async function getStudents(
             email: s.email,
             deviceBound: s.deviceBound,
             boundDeviceName: s.boundDeviceName,
-            account: 'Active',
+            account: s.account || (s.isActive === false ? 'Inactive' : 'Active'),
           })),
           isLive: true,
           isHod: json.isHod,
@@ -157,42 +163,11 @@ export async function getStudents(
         };
       }
     }
+    const failed = await res.json().catch(() => ({}));
+    throw new Error(failed.message || 'Failed to load students');
   } catch (err) {
-    // fallback below
+    throw err instanceof Error ? err : new Error('Failed to load students');
   }
-
-  // Comprehensive fallback students covering all departments
-  const allDemoStudents: StudentRecord[] = [
-    { id: 101, name: 'Rahul Sharma', usn: '01CS123', department: 'Computer Science & Engineering', semester: 5, section: 'A', academicYear: '2026-27', account: 'Active', deviceBound: true, boundDeviceName: 'Pixel 8' },
-    { id: 102, name: 'Ananya Singh', usn: '01CS124', department: 'Computer Science & Engineering', semester: 5, section: 'A', academicYear: '2026-27', account: 'Active', deviceBound: true, boundDeviceName: 'iPhone 15' },
-    { id: 103, name: 'Vikram Patel', usn: '01CS125', department: 'Computer Science & Engineering', semester: 5, section: 'B', academicYear: '2026-27', account: 'Active', deviceBound: true, boundDeviceName: 'Galaxy S23' },
-    { id: 104, name: 'Arjun Kumar', usn: '01CS127', department: 'Computer Science & Engineering', semester: 5, section: 'A', academicYear: '2026-27', account: 'Active', deviceBound: true, boundDeviceName: 'OnePlus 11' },
-    { id: 201, name: 'Priya Sharma', usn: '01AI001', department: 'Artificial Intelligence & Machine Learning', semester: 3, section: 'A', academicYear: '2026-27', account: 'Active', deviceBound: true, boundDeviceName: 'iPhone 14' },
-    { id: 202, name: 'Rohit Gupta', usn: '01AI002', department: 'Artificial Intelligence & Machine Learning', semester: 3, section: 'A', academicYear: '2026-27', account: 'Active', deviceBound: false, boundDeviceName: null },
-    { id: 301, name: 'Ishita Rao', usn: '01EC203', department: 'Electronics & Communication', semester: 3, section: 'A', academicYear: '2026-27', account: 'Active', deviceBound: true, boundDeviceName: 'iPhone 14' },
-    { id: 302, name: 'Manoj Kumar', usn: '01EC204', department: 'Electronics & Communication', semester: 3, section: 'B', academicYear: '2026-27', account: 'Active', deviceBound: false, boundDeviceName: null },
-    { id: 401, name: 'Suresh Patil', usn: '01EE101', department: 'Electrical & Electronics Engineering', semester: 5, section: 'A', academicYear: '2026-27', account: 'Active', deviceBound: true, boundDeviceName: 'Galaxy A54' },
-    { id: 402, name: 'Divya K', usn: '01EE102', department: 'Electrical & Electronics Engineering', semester: 5, section: 'A', academicYear: '2026-27', account: 'Active', deviceBound: false, boundDeviceName: null },
-    { id: 501, name: 'Adarsh Joshi', usn: '01ME051', department: 'Mechanical Engineering', semester: 7, section: 'A', academicYear: '2026-27', account: 'Active', deviceBound: true, boundDeviceName: 'Vivo X90' },
-    { id: 502, name: 'Ramesh Patil', usn: '01ME052', department: 'Mechanical Engineering', semester: 7, section: 'B', academicYear: '2026-27', account: 'Active', deviceBound: false, boundDeviceName: null },
-    { id: 601, name: 'Sneha Kulkarni', usn: '01CV011', department: 'Civil Engineering', semester: 5, section: 'A', academicYear: '2026-27', account: 'Active', deviceBound: true, boundDeviceName: 'Pixel 7a' },
-    { id: 602, name: 'Vijay Kumar', usn: '01CV012', department: 'Civil Engineering', semester: 5, section: 'A', academicYear: '2026-27', account: 'Active', deviceBound: false, boundDeviceName: null },
-    { id: 701, name: 'Pooja Nair', usn: '01DS001', department: 'Computer Science (Data Science)', semester: 3, section: 'A', academicYear: '2026-27', account: 'Active', deviceBound: true, boundDeviceName: 'iPhone 13' },
-    { id: 702, name: 'Karthik Hegde', usn: '01DS002', department: 'Computer Science (Data Science)', semester: 3, section: 'A', academicYear: '2026-27', account: 'Active', deviceBound: false, boundDeviceName: null },
-  ];
-
-  let filtered = allDemoStudents;
-  if (searchQuery) {
-    const q = searchQuery.toLowerCase();
-    filtered = filtered.filter(s => s.name.toLowerCase().includes(q) || s.usn.toLowerCase().includes(q));
-  }
-
-  return {
-    students: filtered,
-    isLive: false,
-    isHod: false,
-    department: null,
-  };
 }
 
 /**
@@ -212,6 +187,7 @@ export async function createStudent(payload: CreateStudentPayload, token?: strin
   const res = await fetch(endpoint, {
     method: 'POST',
     headers,
+    credentials: 'include',
     body: JSON.stringify(payload),
   });
 
@@ -227,9 +203,13 @@ export async function createStudent(payload: CreateStudentPayload, token?: strin
  */
 export async function getDepartments(): Promise<DepartmentRecord[]> {
   try {
-    const res = await fetch(`${getApiBase()}/departments`, {
+    const endpoint = typeof window !== 'undefined'
+      ? '/api/admin/departments'
+      : `${getApiBase()}/admin/departments`;
+    const res = await fetch(endpoint, {
       method: 'GET',
       headers: { 'Accept': 'application/json' },
+      credentials: 'include',
       signal: AbortSignal.timeout(4000),
     });
 
@@ -241,12 +221,7 @@ export async function getDepartments(): Promise<DepartmentRecord[]> {
     }
   } catch (err) {}
 
-  return [
-    { id: 1, name: 'Computer Science & Engineering', code: 'CSE' },
-    { id: 2, name: 'Electronics & Communication', code: 'ECE' },
-    { id: 3, name: 'Information Technology', code: 'IT' },
-    { id: 4, name: 'Mechanical Engineering', code: 'ME' },
-  ];
+  throw new Error('Failed to load departments');
 }
 
 /**
@@ -273,7 +248,8 @@ export async function getFaculty(
     const res = await fetch(endpoint, {
       method: 'GET',
       headers,
-      signal: AbortSignal.timeout(6000),
+      credentials: 'include',
+      signal: AbortSignal.timeout(8000),
     });
 
     if (res.ok) {
@@ -285,9 +261,10 @@ export async function getFaculty(
             name: f.name || f.user?.name || 'Faculty Member',
             email: f.email || f.user?.email || '',
             employeeId: f.employeeId || `FAC-${f.id}`,
-            department: f.department || f.department?.name || 'Academic Dept',
-            departmentCode: f.departmentCode || '',
+            department: typeof f.department === 'string' ? f.department : f.department?.name || 'Academic Dept',
+            departmentCode: f.departmentCode || f.department?.code || '',
             designation: f.designation || null,
+            status: f.status || (f.isActive === false ? 'Inactive' : 'Active'),
           })),
           isLive: true,
           isHod: json.isHod,
@@ -295,17 +272,11 @@ export async function getFaculty(
         };
       }
     }
-  } catch (err) {}
-
-  return {
-    faculty: [
-      { id: 1, name: 'Dr. Ramesh Kumar', employeeId: 'FAC001', department: 'Computer Science', designation: 'Professor & HOD', email: 'ramesh@smartattend.edu' },
-      { id: 2, name: 'Prof. Sunita Deshmukh', employeeId: 'FAC002', department: 'Computer Science', designation: 'Associate Professor', email: 'sunita@smartattend.edu' },
-      { id: 3, name: 'Dr. Vivek Sharma', employeeId: 'FAC003', department: 'Electronics', designation: 'Professor', email: 'vivek@smartattend.edu' },
-      { id: 4, name: 'Prof. Priya Nair', employeeId: 'FAC004', department: 'Information Tech', designation: 'Assistant Professor', email: 'priya@smartattend.edu' },
-    ],
-    isLive: false,
-  };
+    const failed = await res.json().catch(() => ({}));
+    throw new Error(failed.message || 'Failed to load faculty');
+  } catch (err) {
+    throw err instanceof Error ? err : new Error('Failed to load faculty');
+  }
 }
 
 export interface ImportStudentItem {
@@ -359,6 +330,7 @@ export async function previewImportStudents(file: File, year: number): Promise<I
 
   const res = await fetch('/api/admin/students/import?preview=true', {
     method: 'POST',
+    credentials: 'include',
     body: formData,
   });
 
@@ -380,6 +352,7 @@ export async function commitImportStudents(file: File, year: number): Promise<Im
 
   const res = await fetch('/api/admin/students/import?preview=false', {
     method: 'POST',
+    credentials: 'include',
     body: formData,
   });
 
@@ -441,6 +414,7 @@ export async function previewAssignDivision(payload: AssignDivisionPayload): Pro
       'Content-Type': 'application/json',
       'Accept': 'application/json',
     },
+    credentials: 'include',
     body: JSON.stringify(payload),
   });
 
@@ -462,6 +436,7 @@ export async function commitAssignDivision(payload: AssignDivisionPayload): Prom
       'Content-Type': 'application/json',
       'Accept': 'application/json',
     },
+    credentials: 'include',
     body: JSON.stringify(payload),
   });
 
@@ -548,6 +523,7 @@ export async function previewAssignLabBatch(payload: AssignLabBatchPayload): Pro
       'Content-Type': 'application/json',
       'Accept': 'application/json',
     },
+    credentials: 'include',
     body: JSON.stringify(payload),
   });
 
@@ -569,6 +545,7 @@ export async function commitAssignLabBatch(payload: AssignLabBatchPayload): Prom
       'Content-Type': 'application/json',
       'Accept': 'application/json',
     },
+    credentials: 'include',
     body: JSON.stringify(payload),
   });
 
@@ -594,6 +571,7 @@ export async function updateStudentAdmin(
       'Content-Type': 'application/json',
       'Accept': 'application/json',
     },
+    credentials: 'include',
     body: JSON.stringify(payload),
   });
 
@@ -616,6 +594,7 @@ export async function deleteStudentAdmin(
     headers: {
       'Accept': 'application/json',
     },
+    credentials: 'include',
   });
 
   const data = await res.json();
@@ -652,6 +631,7 @@ export async function getStudentDeviceAdmin(
     headers: {
       'Accept': 'application/json',
     },
+    credentials: 'include',
   });
 
   const data = await res.json();
@@ -673,6 +653,7 @@ export async function resetStudentDeviceAdmin(
     headers: {
       'Accept': 'application/json',
     },
+    credentials: 'include',
   });
 
   const data = await res.json();
@@ -701,6 +682,7 @@ export async function createFacultyAdmin(payload: {
       'Content-Type': 'application/json',
       'Accept': 'application/json',
     },
+    credentials: 'include',
     body: JSON.stringify(payload),
   });
 
@@ -731,6 +713,7 @@ export async function updateFacultyAdmin(
       'Content-Type': 'application/json',
       'Accept': 'application/json',
     },
+    credentials: 'include',
     body: JSON.stringify(payload),
   });
 
@@ -753,6 +736,7 @@ export async function deleteFacultyAdmin(
     headers: {
       'Accept': 'application/json',
     },
+    credentials: 'include',
   });
 
   const data = await res.json();
@@ -778,7 +762,7 @@ export async function downloadFacultyExport(options: {
   if (options.filter) params.append('filter', options.filter);
   if (options.search) params.append('search', options.search);
 
-  const res = await fetch(`/api/admin/faculty/export?${params.toString()}`);
+  const res = await fetch(`/api/admin/faculty/export?${params.toString()}`, { credentials: 'include' });
   if (!res.ok) {
     const errText = await res.text();
     throw new Error(errText || 'Failed to export faculty records');
@@ -812,7 +796,7 @@ export async function downloadStudentsExport(options: {
   if (options.lab) params.append('lab', options.lab);
   if (options.search) params.append('search', options.search);
 
-  const res = await fetch(`/api/admin/students/export?${params.toString()}`);
+  const res = await fetch(`/api/admin/students/export?${params.toString()}`, { credentials: 'include' });
   if (!res.ok) {
     const errText = await res.text();
     throw new Error(errText || 'Failed to export student records');
@@ -828,4 +812,3 @@ export async function downloadStudentsExport(options: {
   document.body.removeChild(a);
   URL.revokeObjectURL(url);
 }
-

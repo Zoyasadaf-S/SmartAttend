@@ -16,7 +16,6 @@ import {
   Shield,
   Activity,
   FileText,
-  Smartphone
 } from 'lucide-react'
 
 // Common UI Components
@@ -99,10 +98,11 @@ const SIDEBAR_ITEMS = [
   { label: 'Overview', icon: LayoutDashboard, href: '/admin/dashboard' },
   { label: 'Students', icon: GraduationCap, href: '/admin/students' },
   { label: 'Faculty', icon: Users, href: '/admin/faculty' },
-  { label: 'Live Attendance', icon: Activity, href: '/admin/attendance' },
   { label: 'Timetable', icon: Calendar, href: '/admin/timetable' },
-  { label: 'Devices', icon: Smartphone, href: '/admin/devices' },
+  { label: 'Attendance Sheet', icon: FileText, href: '/admin/attendance-sheet' },
   { label: 'Reports', icon: FileText, href: '/admin/reports' },
+  { label: 'Users', icon: Shield, href: '/admin/users' },
+  { label: 'Audit Logs', icon: Activity, href: '/admin/audit-logs' },
   { label: 'Settings', icon: Settings, href: '/admin/settings' },
 ]
 
@@ -216,7 +216,7 @@ export function AdminShell({ children }: { children: ReactNode }) {
             ) : backendStatus === 'offline' ? (
               <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-amber-50 text-amber-700 border border-amber-200 dark:bg-amber-950/40 dark:text-amber-400 dark:border-amber-800">
                 <span className="size-1.5 rounded-full bg-amber-500" />
-                Demo Mode (API Offline)
+                Backend API Offline
               </span>
             ) : (
               <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-muted text-muted-foreground border border-border">

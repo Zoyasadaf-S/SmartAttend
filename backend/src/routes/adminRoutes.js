@@ -19,144 +19,72 @@ import {
   deleteAdminFaculty,
   exportAdminFaculty,
 } from "../controllers/adminController.js";
-
+import {
+  getAdminMe,
+  getAdminUsers,
+  createAdminUser,
+  updateAdminUser,
+  toggleAdminUserStatus,
+  getAdminReports,
+  getAdminAuditLogs,
+} from "../controllers/adminSecurityController.js";
+import { login, changePassword } from "../controllers/authController.js";
+import { getDepartments, createDepartment } from "../controllers/departmentController.js";
+import { bulkPromoteStudents } from "../controllers/studentController.js";
 import { authenticate } from "../middleware/authMiddleware.js";
 import { authorize } from "../middleware/roleMiddleware.js";
 
 const router = express.Router();
+const portal = authorize("SUPER_ADMIN", "ADMIN");
 
 const upload = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: 10 * 1024 * 1024 }, // 10MB max file size
+  limits: { fileSize: 10 * 1024 * 1024 },
 });
 
-router.get("/dashboard", authenticate, authorize("ADMIN"), getAdminDashboard);
+router.post("/auth/login", (req, res, next) => {
+  req.adminOnly = true;
+  return login(req, res, next);
+});
+router.post("/auth/logout", (req, res) => {
+  res.clearCookie("sa_admin_session");
+  return res.status(200).json({ success: true, message: "Logged out" });
+});
+router.post("/auth/change-password", authenticate, changePassword);
 
-router.get("/students", authenticate, authorize("ADMIN", "FACULTY", "HOD"), getAdminStudents);
+router.get("/dashboard", authenticate, portal, getAdminDashboard);
+router.get("/me", authenticate, portal, getAdminMe);
+router.get("/departments", authenticate, portal, getDepartments);
+router.post("/departments", authenticate, authorize("SUPER_ADMIN"), createDepartment);
 
-router.post("/students", authenticate, authorize("ADMIN", "FACULTY", "HOD"), createAdminStudent);
+router.get("/users", authenticate, authorize("SUPER_ADMIN"), getAdminUsers);
+router.post("/users", authenticate, authorize("SUPER_ADMIN"), createAdminUser);
+router.put("/users/:id", authenticate, authorize("SUPER_ADMIN"), updateAdminUser);
+router.patch("/users/:id/status", authenticate, authorize("SUPER_ADMIN"), toggleAdminUserStatus);
 
-router.post(
-  "/students/import",
-  authenticate,
-  authorize("ADMIN", "FACULTY", "HOD"),
-  upload.single("file"),
-  importAdminStudents
-);
+router.get("/reports/summary", authenticate, portal, getAdminReports);
+router.get("/audit-logs", authenticate, portal, getAdminAuditLogs);
 
-router.patch(
-  "/students/division",
-  authenticate,
-  authorize("ADMIN", "FACULTY", "HOD"),
-  assignAdminStudentDivision
-);
+router.get("/students", authenticate, portal, getAdminStudents);
+router.post("/students", authenticate, portal, createAdminStudent);
+router.post("/students/import", authenticate, portal, upload.single("file"), importAdminStudents);
+router.get("/students/export", authenticate, portal, exportAdminStudents);
+router.post("/students/bulk-promote", authenticate, portal, bulkPromoteStudents);
+router.patch("/students/division", authenticate, portal, assignAdminStudentDivision);
+router.post("/students/division", authenticate, portal, assignAdminStudentDivision);
+router.post("/students/assign-division", authenticate, portal, assignAdminStudentDivision);
+router.patch("/students/lab-batch", authenticate, portal, assignAdminStudentLabBatch);
+router.post("/students/lab-batch", authenticate, portal, assignAdminStudentLabBatch);
+router.post("/students/assign-lab-batch", authenticate, portal, assignAdminStudentLabBatch);
+router.get("/students/:id/device", authenticate, portal, getAdminStudentDevice);
+router.post("/students/:id/device/reset", authenticate, portal, resetAdminStudentDevice);
+router.patch("/students/:id", authenticate, portal, updateAdminStudent);
+router.delete("/students/:id", authenticate, portal, deleteAdminStudent);
 
-router.post(
-  "/students/division",
-  authenticate,
-  authorize("ADMIN", "FACULTY", "HOD"),
-  assignAdminStudentDivision
-);
-
-router.post(
-  "/students/assign-division",
-  authenticate,
-  authorize("ADMIN", "FACULTY", "HOD"),
-  assignAdminStudentDivision
-);
-
-router.patch(
-  "/students/lab-batch",
-  authenticate,
-  authorize("ADMIN", "FACULTY", "HOD"),
-  assignAdminStudentLabBatch
-);
-
-router.post(
-  "/students/lab-batch",
-  authenticate,
-  authorize("ADMIN", "FACULTY", "HOD"),
-  assignAdminStudentLabBatch
-);
-
-router.post(
-  "/students/assign-lab-batch",
-  authenticate,
-  authorize("ADMIN", "FACULTY", "HOD"),
-  assignAdminStudentLabBatch
-);
-
-router.get(
-  "/students/:id/device",
-  authenticate,
-  authorize("ADMIN", "FACULTY", "HOD"),
-  getAdminStudentDevice
-);
-
-router.post(
-  "/students/:id/device/reset",
-  authenticate,
-  authorize("ADMIN", "FACULTY", "HOD"),
-  resetAdminStudentDevice
-);
-
-router.patch(
-  "/students/:id",
-  authenticate,
-  authorize("ADMIN", "FACULTY", "HOD"),
-  updateAdminStudent
-);
-
-router.delete(
-  "/students/:id",
-  authenticate,
-  authorize("ADMIN", "FACULTY", "HOD"),
-  deleteAdminStudent
-);
-
-// Student Export (PDF, XLS, XLSX)
-router.get(
-  "/students/export",
-  authenticate,
-  authorize("ADMIN", "FACULTY", "HOD"),
-  exportAdminStudents
-);
-
-// Faculty Management Routes
-router.get(
-  "/faculty",
-  authenticate,
-  authorize("ADMIN", "FACULTY", "HOD"),
-  getAdminFaculty
-);
-
-router.post(
-  "/faculty",
-  authenticate,
-  authorize("ADMIN", "FACULTY", "HOD"),
-  createAdminFaculty
-);
-
-router.get(
-  "/faculty/export",
-  authenticate,
-  authorize("ADMIN", "FACULTY", "HOD"),
-  exportAdminFaculty
-);
-
-router.patch(
-  "/faculty/:id",
-  authenticate,
-  authorize("ADMIN", "FACULTY", "HOD"),
-  updateAdminFaculty
-);
-
-router.delete(
-  "/faculty/:id",
-  authenticate,
-  authorize("ADMIN", "FACULTY", "HOD"),
-  deleteAdminFaculty
-);
+router.get("/faculty", authenticate, portal, getAdminFaculty);
+router.post("/faculty", authenticate, portal, createAdminFaculty);
+router.get("/faculty/export", authenticate, portal, exportAdminFaculty);
+router.patch("/faculty/:id", authenticate, portal, updateAdminFaculty);
+router.delete("/faculty/:id", authenticate, portal, deleteAdminFaculty);
 
 export default router;
-

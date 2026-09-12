@@ -316,6 +316,12 @@ export function StudentsPage() {
         setHodDepartment(res.department || null)
         setLoading(false)
       }
+    }).catch(() => {
+      if (active) {
+        setStudents([])
+        setIsLive(false)
+        setLoading(false)
+      }
     })
     return () => { active = false }
   }, [])
@@ -800,26 +806,8 @@ export function StudentsPage() {
         })
       }, 1000)
     } catch (err: any) {
-      // If backend fails, also add locally in demo mode
-      const newStudent: StudentRecord = {
-        id: Date.now(),
-        name: formData.name,
-        usn: formData.registerNumber.toUpperCase(),
-        department: formData.department,
-        semester: Number(formData.semester),
-        section: formData.section.toUpperCase(),
-        academicYear: formData.academicYear,
-        email: formData.email,
-        deviceBound: false,
-        boundDeviceName: null,
-        account: 'Active'
-      }
-      setStudents(prev => [...prev, newStudent].sort((a, b) => compareUsn(a.usn, b.usn)))
-      setSuccessMessage('Student registered (Demo Mode)')
-      setTimeout(() => {
-        setShowAddModal(false)
-        setSuccessMessage('')
-      }, 1000)
+      setErrorMessage(err?.message || 'Failed to create student')
+      setSuccessMessage('')
     } finally {
       setSubmitting(false)
     }
@@ -840,7 +828,7 @@ export function StudentsPage() {
                   </span>
                 ) : (
                   <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium bg-muted text-muted-foreground border border-border">
-                    Demo Mode
+                    API unavailable
                   </span>
                 )}
                 {hodDepartment && (
@@ -2466,7 +2454,7 @@ export function FacultyPage() {
                   </span>
                 ) : (
                   <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium bg-muted text-muted-foreground border border-border">
-                    Demo Mode
+                    API unavailable
                   </span>
                 )}
                 {hodDepartment && (

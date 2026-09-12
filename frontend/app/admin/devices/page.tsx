@@ -1,2 +1,5 @@
-import { DevicesPage } from '@/components/smartattend-feature-pages'
-export default function Page() { return <DevicesPage /> }
+import { redirect } from 'next/navigation'
+
+export default function DevicesRemovedPage() {
+  redirect('/admin/dashboard')
+}

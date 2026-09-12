@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "nodemon server.js",
     "start": "node server.js",
-    "contract:emit": "prisma contract emit"
+    "contract:emit": "prisma contract emit",
+    "migrate:sql": "psql \"$DATABASE_URL\" -f migrations/sql/0001_security_admin_additive.sql"
   },
   "keywords": [],
   "author": "",
@@ -15,6 +16,7 @@
   "dependencies": {
     "@prisma/orm-postgres": "^8.0.0-rc.8",
     "bcryptjs": "^3.0.3",
+    "cookie-parser": "^1.4.7",
     "cors": "^2.8.6",
     "dotenv": "^17.4.2",
     "express": "^5.2.1",
@@ -28,6 +30,6 @@
     "@prisma/cli-engine": "^0.2.3",
     "@types/node": "^26.4.1",
     "nodemon": "^3.1.14",
-    "prisma": "^8.0.0-rc.10"
+    "prisma": "^8.0.0-rc.13"
   }
 }

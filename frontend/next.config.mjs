@@ -4,7 +4,7 @@ const nextConfig = {
     unoptimized: true,
   },
   async rewrites() {
-    const backendUrl = process.env.BACKEND_INTERNAL_URL || 'http://localhost:5000';
+    const backendUrl = process.env.BACKEND_INTERNAL_URL || 'http://localhost:5001';
     return [
       {
         source: '/api/backend/:path*',
@@ -15,4 +15,3 @@ const nextConfig = {
 }
 
 export default nextConfig
-

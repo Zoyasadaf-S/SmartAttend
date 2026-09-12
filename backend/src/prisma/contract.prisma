@@ -1,6 +1,7 @@
 // use prisma-next
 
 enum UserRole {
+  SUPER_ADMIN
   ADMIN
   FACULTY
   STUDENT
@@ -24,10 +25,21 @@ model User {
   passwordHash String
   role         UserRole
   isActive     Boolean  @default(true)
+  departmentId Int?
+  department    Department? @relation(fields: [departmentId], references: [id])
+
+  isDeveloperAccount         Boolean @default(false)
+  mustChangePassword         Boolean @default(false)
+  sessionVersion             Int     @default(0)
+  passwordChangedAt          TimestamptzString?
+  temporaryPasswordExpiresAt TimestamptzString?
 
   student      Student?
   faculty      Faculty?
   notifications Notification[]
+  adminSessions AdminSession[]
+  passwordResets PasswordReset[]
+  auditLogs    AuditLog[]     @relation("AuditLogActor")
 
   createdAt    TimestamptzString @default(now())
   updatedAt    temporal.updatedAtString()
@@ -40,6 +52,7 @@ model Department {
 
   students    Student[]
   faculty     Faculty[]
+  users       User[]
   subjects    Subject[]
   classes     Class[]
 
@@ -84,8 +97,6 @@ model Faculty {
   userId       Int      @unique
   employeeId   String   @unique
   departmentId Int
-  designation  String?
-
   user         User       @relation(fields: [userId], references: [id])
   department   Department @relation(fields: [departmentId], references: [id])
   classes      Class[]
@@ -207,4 +218,50 @@ model Notification {
 
   createdAt TimestamptzString @default(now())
   updatedAt temporal.updatedAtString()
+}
+
+model AdminSession {
+  id         Int               @id @default(autoincrement())
+  userId     Int
+  tokenHash  String            @unique
+  expiresAt  TimestamptzString
+  revokedAt  TimestamptzString?
+
+  user       User              @relation(fields: [userId], references: [id])
+
+  createdAt  TimestamptzString @default(now())
+}
+
+model PasswordReset {
+  id         Int               @id @default(autoincrement())
+  userId     Int
+  otpHash    String
+  resetHash  String?           @unique
+  expiresAt  TimestamptzString
+  verifiedAt TimestamptzString?
+  usedAt     TimestamptzString?
+  attempts   Int               @default(0)
+
+  user       User              @relation(fields: [userId], references: [id])
+
+  createdAt  TimestamptzString @default(now())
+}
+
+enum AuditVisibility {
+  COLLEGE
+  INTERNAL
+}
+
+model AuditLog {
+  id           Int             @id @default(autoincrement())
+  actorUserId  Int
+  action       String
+  resourceType String
+  resourceId   String?
+  metadata     String?
+  visibility   String          @default("COLLEGE")
+
+  actor        User            @relation("AuditLogActor", fields: [actorUserId], references: [id])
+
+  createdAt    TimestamptzString @default(now())
 }

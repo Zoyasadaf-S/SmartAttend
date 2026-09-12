@@ -12,7 +12,7 @@ export interface User {
   createdAt: string
   active: boolean
 }
-const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:5000/api';
+const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:5001/api';
 
 async function fetchFromBackend(endpoint: string, options: RequestInit = {}) {
   // In a real app, you would attach the JWT token here from the Next.js session

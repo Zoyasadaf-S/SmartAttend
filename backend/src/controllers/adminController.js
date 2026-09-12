@@ -1,23 +1,38 @@
 import { db } from "../prisma/db.js";
 import bcrypt from "bcryptjs";
 import * as xlsx from "xlsx";
-import { getHodDepartment } from "../utils/hodDepartment.js";
+import { recordAudit } from "../utils/audit.js";
+import { isHod, isSuperAdmin } from "../utils/rbac.js";
 import { parseStudentFile } from "../utils/studentFileParser.js";
 import { generatePdfTableBuffer } from "../utils/pdfGenerator.js";
 import { generateSecureTemporaryCredential } from "../utils/credentialGenerator.js";
 
+async function departmentCodeForUser(user) {
+  if (!isHod(user) || user.departmentId == null) return null;
+  const departments = await db.orm.public.Department.where({ id: Number(user.departmentId) }).all();
+  return departments[0]?.code ?? null;
+}
+
 export const getAdminDashboard = async (req, res) => {
   try {
-    const students = await db.orm.public.Student.all();
-    const faculty = await db.orm.public.Faculty.all();
-    const classes = await db.orm.public.Class.all();
+    const departmentId = isHod(req.user) ? Number(req.user.departmentId) : null;
+    const allStudents = await db.orm.public.Student.all();
+    const allFaculty = await db.orm.public.Faculty.all();
+    const allClasses = await db.orm.public.Class.all();
     const sessions = await db.orm.public.AttendanceSession.all();
     const attendance = await db.orm.public.Attendance.all();
+    const students = departmentId ? allStudents.filter((item) => item.departmentId === departmentId) : allStudents;
+    const faculty = departmentId ? allFaculty.filter((item) => item.departmentId === departmentId) : allFaculty;
+    const classes = departmentId ? allClasses.filter((item) => item.departmentId === departmentId) : allClasses;
 
     // Get today's date in YYYY-MM-DD format
     const today = new Date().toISOString().split("T")[0];
 
-    const todaySessions = sessions.filter((session) =>
+    const classIds = new Set(classes.map((item) => item.id));
+    const visibleSessions = sessions.filter((session) => classIds.has(session.classId));
+    const sessionIds = new Set(visibleSessions.map((item) => item.id));
+    const visibleAttendance = attendance.filter((record) => sessionIds.has(record.sessionId));
+    const todaySessions = visibleSessions.filter((session) =>
       String(session.sessionDate).startsWith(today),
     );
 
@@ -25,7 +40,7 @@ export const getAdminDashboard = async (req, res) => {
       (session) => session.endedAt === null,
     );
 
-    const todayAttendance = attendance.filter((record) =>
+    const todayAttendance = visibleAttendance.filter((record) =>
       String(record.markedAt).startsWith(today),
     );
 
@@ -113,26 +128,6 @@ const matchDepartment = (student, targetCode, departments = []) => {
 
   return sDept === target;
 };
-
-// Seed/demo fallback dataset covering all departments
-const FALLBACK_STUDENTS = [
-  { id: 101, name: "Rahul Sharma", usn: "01CS123", department: "Computer Science & Engineering", departmentCode: "CSE", semester: 5, section: "A", Lab: "A1", lab: "A1", academicYear: "2026-27", email: "rahul.sharma@klsvdit.edu.in", deviceBound: true, boundDeviceName: "Pixel 8" },
-  { id: 102, name: "Ananya Singh", usn: "01CS124", department: "Computer Science & Engineering", departmentCode: "CSE", semester: 5, section: "A", Lab: "A1", lab: "A1", academicYear: "2026-27", email: "ananya.singh@klsvdit.edu.in", deviceBound: true, boundDeviceName: "iPhone 15" },
-  { id: 103, name: "Vikram Patel", usn: "01CS125", department: "Computer Science & Engineering", departmentCode: "CSE", semester: 5, section: "B", Lab: "B1", lab: "B1", academicYear: "2026-27", email: "vikram.patel@klsvdit.edu.in", deviceBound: true, boundDeviceName: "Galaxy S23" },
-  { id: 104, name: "Arjun Kumar", usn: "01CS127", department: "Computer Science & Engineering", departmentCode: "CSE", semester: 5, section: "A", Lab: "A1", lab: "A1", academicYear: "2026-27", email: "arjun.kumar@klsvdit.edu.in", deviceBound: true, boundDeviceName: "OnePlus 11" },
-  { id: 201, name: "Priya Sharma", usn: "01AI001", department: "Artificial Intelligence & Machine Learning", departmentCode: "AIML", semester: 3, section: "A", Lab: "A1", lab: "A1", academicYear: "2026-27", email: "priya.sharma@klsvdit.edu.in", deviceBound: true, boundDeviceName: "iPhone 14" },
-  { id: 202, name: "Rohit Gupta", usn: "01AI002", department: "Artificial Intelligence & Machine Learning", departmentCode: "AIML", semester: 3, section: "A", Lab: "A1", lab: "A1", academicYear: "2026-27", email: "rohit.gupta@klsvdit.edu.in", deviceBound: false, boundDeviceName: null },
-  { id: 301, name: "Ishita Rao", usn: "01EC203", department: "Electronics & Communication", departmentCode: "ECE", semester: 3, section: "A", Lab: "A1", lab: "A1", academicYear: "2026-27", email: "ishita.rao@klsvdit.edu.in", deviceBound: true, boundDeviceName: "iPhone 14" },
-  { id: 302, name: "Manoj Kumar", usn: "01EC204", department: "Electronics & Communication", departmentCode: "ECE", semester: 3, section: "B", Lab: "B1", lab: "B1", academicYear: "2026-27", email: "manoj.kumar@klsvdit.edu.in", deviceBound: false, boundDeviceName: null },
-  { id: 401, name: "Suresh Patil", usn: "01EE101", department: "Electrical & Electronics Engineering", departmentCode: "EEE", semester: 5, section: "A", Lab: "A1", lab: "A1", academicYear: "2026-27", email: "suresh.patil@klsvdit.edu.in", deviceBound: true, boundDeviceName: "Galaxy A54" },
-  { id: 402, name: "Divya K", usn: "01EE102", department: "Electrical & Electronics Engineering", departmentCode: "EEE", semester: 5, section: "A", Lab: "A1", lab: "A1", academicYear: "2026-27", email: "divya.k@klsvdit.edu.in", deviceBound: false, boundDeviceName: null },
-  { id: 501, name: "Adarsh Joshi", usn: "01ME051", department: "Mechanical Engineering", departmentCode: "MECH", semester: 7, section: "A", Lab: "A1", lab: "A1", academicYear: "2026-27", email: "adarsh.joshi@klsvdit.edu.in", deviceBound: true, boundDeviceName: "Vivo X90" },
-  { id: 502, name: "Ramesh Patil", usn: "01ME052", department: "Mechanical Engineering", departmentCode: "MECH", semester: 7, section: "B", Lab: "B1", lab: "B1", academicYear: "2026-27", email: "ramesh.patil@klsvdit.edu.in", deviceBound: false, boundDeviceName: null },
-  { id: 601, name: "Sneha Kulkarni", usn: "01CV011", department: "Civil Engineering", departmentCode: "CIVIL", semester: 5, section: "A", Lab: "A1", lab: "A1", academicYear: "2026-27", email: "sneha.kulkarni@klsvdit.edu.in", deviceBound: true, boundDeviceName: "Pixel 7a" },
-  { id: 602, name: "Vijay Kumar", usn: "01CV012", department: "Civil Engineering", departmentCode: "CIVIL", semester: 5, section: "A", Lab: "A1", lab: "A1", academicYear: "2026-27", email: "vijay.kumar@klsvdit.edu.in", deviceBound: false, boundDeviceName: null },
-  { id: 701, name: "Pooja Nair", usn: "01DS001", department: "Computer Science (Data Science)", departmentCode: "CSE-DS", semester: 3, section: "A", Lab: "A1", lab: "A1", academicYear: "2026-27", email: "pooja.nair@klsvdit.edu.in", deviceBound: true, boundDeviceName: "iPhone 13" },
-  { id: 702, name: "Karthik Hegde", usn: "01DS002", department: "Computer Science (Data Science)", departmentCode: "CSE-DS", semester: 3, section: "A", Lab: "A1", lab: "A1", academicYear: "2026-27", email: "karthik.hegde@klsvdit.edu.in", deviceBound: false, boundDeviceName: null },
-];
 
 // Helper for validating USN range specification
 export function parseAndValidateUsnRange(from, to) {
@@ -252,8 +247,7 @@ export function compareUsn(a, b) {
 
 export const getAdminStudents = async (req, res) => {
   try {
-    const callerEmail = req.user?.email;
-    const hodDepartment = getHodDepartment(callerEmail);
+    const hodDepartment = await departmentCodeForUser(req.user);
 
     // SECURITY ENFORCEMENT:
     // If caller is an HOD, their department is strictly locked to their assigned HOD department.
@@ -299,18 +293,16 @@ export const getAdminStudents = async (req, res) => {
             lab: student.Lab || `${student.section || "A"}1`,
             academicYear: student.academicYear,
             email: user?.email ?? null,
+            isActive: user?.isActive ?? false,
+            account: user?.isActive === false ? "Inactive" : "Active",
             deviceBound,
             boundDeviceName: deviceBound ? "Registered Device" : null,
           };
         });
       }
     } catch (dbErr) {
-      // Database offline/unreachable in local dev
-    }
-
-    // If database has no records or is unreachable, use comprehensive fallback
-    if (!result || result.length === 0) {
-      result = [...FALLBACK_STUDENTS];
+      console.error("Failed to load students from database:", dbErr);
+      return res.status(500).json({ success: false, message: "Failed to load students" });
     }
 
     // 1. STRICT BACKEND FILTERING: Apply HOD department restriction
@@ -392,9 +384,7 @@ export const createAdminStudent = async (req, res) => {
     const departments = await db.orm.public.Department.all();
 
     let selectedDepartment = null;
-
-    const callerEmail = req.user?.email || "";
-    const hodDepartment = getHodDepartment(callerEmail);
+    const hodDepartment = await departmentCodeForUser(req.user);
 
     if (hodDepartment) {
       selectedDepartment = departments.find(
@@ -465,9 +455,9 @@ export const createAdminStudent = async (req, res) => {
     }
 
     // Generate temporary password
-    const temporaryPassword = `SA${normalizedRegisterNumber.slice(-4)}@2026`;
+    const temporaryPassword = generateSecureTemporaryCredential();
 
-    const passwordHash = await bcrypt.hash(temporaryPassword, 10);
+    const passwordHash = await bcrypt.hash(temporaryPassword, 12);
 
     // Create User
     const user = await db.orm.public.User.create({
@@ -475,7 +465,9 @@ export const createAdminStudent = async (req, res) => {
       email: normalizedEmail,
       passwordHash,
       role: "STUDENT",
+      departmentId: selectedDepartment.id,
       isActive: true,
+      mustChangePassword: true,
     });
 
     const cleanSection = section
@@ -518,6 +510,7 @@ export const createAdminStudent = async (req, res) => {
         temporaryPassword,
       },
     });
+    await recordAudit(req, "CREATE", "STUDENT", student.id, { departmentId: student.departmentId });
   } catch (error) {
     console.error("Admin create student error:", error);
 
@@ -540,9 +533,8 @@ export const createAdminStudent = async (req, res) => {
  */
 export const importAdminStudents = async (req, res) => {
   try {
-    const callerEmail = req.user?.email;
     const callerRole = req.user?.role;
-    const hodDepartment = getHodDepartment(callerEmail);
+    const hodDepartment = await departmentCodeForUser(req.user);
 
     // SECURITY ENFORCEMENT:
     // Department MUST be resolved from the authenticated HOD.
@@ -551,9 +543,14 @@ export const importAdminStudents = async (req, res) => {
 
     if (hodDepartment) {
       targetDepartmentCode = hodDepartment;
-    } else if (callerRole === "ADMIN") {
-      // Super Admin fallback allows selecting or defaulting department
-      targetDepartmentCode = (req.body.department || req.query.department || "CSE").trim().toUpperCase();
+    } else if (isSuperAdmin(req.user) || callerRole === "SUPER_ADMIN") {
+      targetDepartmentCode = String(req.body.department || req.query.department || "").trim().toUpperCase();
+      if (!targetDepartmentCode) {
+        return res.status(400).json({
+          success: false,
+          message: "department is required for institution-wide imports",
+        });
+      }
     } else {
       return res.status(403).json({
         success: false,
@@ -726,8 +723,8 @@ export const importAdminStudents = async (req, res) => {
       }
       existingEmailSet.add(email);
 
-      const temporaryPassword = `SA${item.usn.slice(-4)}@2026`;
-      const passwordHash = await bcrypt.hash(temporaryPassword, 10);
+      const temporaryPassword = generateSecureTemporaryCredential();
+      const passwordHash = await bcrypt.hash(temporaryPassword, 12);
 
       // 1. Create User account
       const user = await db.orm.public.User.create({
@@ -735,7 +732,9 @@ export const importAdminStudents = async (req, res) => {
         email,
         passwordHash,
         role: "STUDENT",
+        departmentId: targetDept.id,
         isActive: true,
+        mustChangePassword: true,
       });
 
       // 2. Create Student record
@@ -756,6 +755,8 @@ export const importAdminStudents = async (req, res) => {
         department: targetDepartmentCode,
         semester,
         year,
+        email,
+        temporaryPassword,
       });
     }
 
@@ -775,6 +776,11 @@ export const importAdminStudents = async (req, res) => {
       },
       data: insertedStudents,
     });
+    await recordAudit(req, "IMPORT", "STUDENT", null, {
+      created: insertedStudents.length,
+      departmentId: targetDept.id,
+      year,
+    });
   } catch (error) {
     console.error("Admin import students error:", error);
     return res.status(500).json({
@@ -790,8 +796,7 @@ export const importAdminStudents = async (req, res) => {
  */
 export const assignAdminStudentDivision = async (req, res) => {
   try {
-    const callerEmail = req.user?.email;
-    const hodDepartment = getHodDepartment(callerEmail);
+    const hodDepartment = await departmentCodeForUser(req.user);
 
     // Support both parameter names: startUsn/endUsn or fromUsn/toUsn
     const startUsn = String(req.body.startUsn ?? req.body.fromUsn ?? "").trim().toUpperCase();
@@ -863,18 +868,6 @@ export const assignAdminStudentDivision = async (req, res) => {
       checkUsnRange(s.registerNumber, startUsn, endUsn)
     );
 
-    // Fallback in local dev if DB is empty
-    if (matchedStudents.length === 0 && (!allStudents || allStudents.length === 0)) {
-      let fallbackTarget = [...FALLBACK_STUDENTS];
-      if (hodDepartment) {
-        fallbackTarget = fallbackTarget.filter((s) =>
-          matchDepartment(s, hodDepartment, departments)
-        );
-      }
-      matchedStudents = fallbackTarget.filter((s) =>
-        checkUsnRange(s.usn, startUsn, endUsn)
-      );
-    }
 
     if (matchedStudents.length === 0) {
       return res.status(404).json({
@@ -970,8 +963,7 @@ export const assignAdminStudentDivision = async (req, res) => {
  */
 export const assignAdminStudentLabBatch = async (req, res) => {
   try {
-    const callerEmail = req.user?.email;
-    const hodDepartment = getHodDepartment(callerEmail);
+    const hodDepartment = await departmentCodeForUser(req.user);
 
     const startUsn = String(req.body.startUsn ?? req.body.fromUsn ?? "").trim().toUpperCase();
     const endUsn = String(req.body.endUsn ?? req.body.toUsn ?? "").trim().toUpperCase();
@@ -1051,18 +1043,6 @@ export const assignAdminStudentLabBatch = async (req, res) => {
       checkUsnRange(s.registerNumber, startUsn, endUsn)
     );
 
-    // Fallback in local dev if DB is empty
-    if (matchedStudents.length === 0 && (!allStudents || allStudents.length === 0)) {
-      let fallbackTarget = [...FALLBACK_STUDENTS];
-      if (hodDepartment) {
-        fallbackTarget = fallbackTarget.filter((s) =>
-          matchDepartment(s, hodDepartment, departments)
-        );
-      }
-      matchedStudents = fallbackTarget.filter((s) =>
-        checkUsnRange(s.usn, startUsn, endUsn)
-      );
-    }
 
     if (matchedStudents.length === 0) {
       return res.status(404).json({
@@ -1225,8 +1205,7 @@ export const updateAdminStudent = async (req, res) => {
     }
 
     // 1. Verify caller's HOD department scope
-    const callerEmail = req.user?.email || "";
-    const hodDepartment = getHodDepartment(callerEmail);
+    const hodDepartment = await departmentCodeForUser(req.user);
 
     const students = await db.orm.public.Student.where({ id: studentId }).all();
     if (!students || students.length === 0) {
@@ -1316,9 +1295,7 @@ export const getAdminStudentDevice = async (req, res) => {
     if (isNaN(studentId)) {
       return res.status(400).json({ success: false, message: "Invalid student ID" });
     }
-
-    const callerEmail = req.user?.email || "";
-    const hodDepartment = getHodDepartment(callerEmail);
+    const hodDepartment = await departmentCodeForUser(req.user);
 
     const students = await db.orm.public.Student.where({ id: studentId }).all();
     if (!students || students.length === 0) {
@@ -1380,9 +1357,7 @@ export const resetAdminStudentDevice = async (req, res) => {
     if (isNaN(studentId)) {
       return res.status(400).json({ success: false, message: "Invalid student ID" });
     }
-
-    const callerEmail = req.user?.email || "";
-    const hodDepartment = getHodDepartment(callerEmail);
+    const hodDepartment = await departmentCodeForUser(req.user);
 
     const students = await db.orm.public.Student.where({ id: studentId }).all();
     if (!students || students.length === 0) {
@@ -1429,9 +1404,7 @@ export const deleteAdminStudent = async (req, res) => {
     if (isNaN(studentId)) {
       return res.status(400).json({ success: false, message: "Invalid student ID" });
     }
-
-    const callerEmail = req.user?.email || "";
-    const hodDepartment = getHodDepartment(callerEmail);
+    const hodDepartment = await departmentCodeForUser(req.user);
 
     const students = await db.orm.public.Student.where({ id: studentId }).all();
     if (!students || students.length === 0) {
@@ -1506,9 +1479,8 @@ export const deleteAdminStudent = async (req, res) => {
  */
 export const getAdminFaculty = async (req, res) => {
   try {
-    const callerEmail = req.user?.email;
-    const isAdmin = req.user?.role === "ADMIN";
-    const hodDepartment = getHodDepartment(callerEmail);
+    const isAdmin = isSuperAdmin(req.user) || req.user?.role === "ADMIN";
+    const hodDepartment = await departmentCodeForUser(req.user);
     const isHod = Boolean(hodDepartment);
 
     if (!isAdmin && !isHod) {
@@ -1551,15 +1523,18 @@ export const getAdminFaculty = async (req, res) => {
         departmentCode: d?.code || "Unknown",
         departmentId: f.departmentId,
         designation: f.designation || null,
+        isActive: u?.isActive ?? false,
+        status: u?.isActive === false ? "Inactive" : "Active",
       };
     });
 
     // 1. Department Filter / HOD Isolation
     if (targetDepartment) {
-      result = result.filter(
-        (f) =>
-          f.departmentCode.toUpperCase() === targetDepartment.toUpperCase() ||
-          f.department.toLowerCase().includes(targetDepartment.toLowerCase())
+      result = result.filter((f) =>
+        hodDepartment
+          ? Number(f.departmentId) === Number(req.user.departmentId)
+          : f.departmentCode.toUpperCase() === targetDepartment.toUpperCase() ||
+            f.department.toLowerCase().includes(targetDepartment.toLowerCase())
       );
     }
 
@@ -1612,9 +1587,8 @@ export const getAdminFaculty = async (req, res) => {
  */
 export const createAdminFaculty = async (req, res) => {
   try {
-    const callerEmail = req.user?.email;
-    const isAdmin = req.user?.role === "ADMIN";
-    const hodDepartment = getHodDepartment(callerEmail);
+    const isAdmin = isSuperAdmin(req.user) || req.user?.role === "ADMIN";
+    const hodDepartment = await departmentCodeForUser(req.user);
     const isHod = Boolean(hodDepartment);
 
     if (!isAdmin && !isHod) {
@@ -1624,20 +1598,13 @@ export const createAdminFaculty = async (req, res) => {
       });
     }
 
-    const { name, employeeId, department, departmentId, designation, email, password } = req.body;
+    const { name, employeeId, department, departmentId, email, password } = req.body;
 
     // Validation of required fields
     if (!name || !employeeId) {
       return res.status(400).json({
         success: false,
         message: "Faculty Name and Employee ID are required",
-      });
-    }
-
-    if (!designation) {
-      return res.status(400).json({
-        success: false,
-        message: "Designation is required",
       });
     }
 
@@ -1714,7 +1681,7 @@ export const createAdminFaculty = async (req, res) => {
       rawPassword = temporaryPassword;
     }
 
-    const passwordHash = await bcrypt.hash(rawPassword, 10);
+    const passwordHash = await bcrypt.hash(rawPassword, 12);
 
     // 1. Create User
     const user = await db.orm.public.User.create({
@@ -1722,7 +1689,9 @@ export const createAdminFaculty = async (req, res) => {
       email: normalizedEmail,
       passwordHash,
       role: "FACULTY",
+      departmentId: selectedDept.id,
       isActive: true,
+      mustChangePassword: true,
     });
 
     // 2. Create Faculty record
@@ -1730,7 +1699,6 @@ export const createAdminFaculty = async (req, res) => {
       userId: user.id,
       employeeId: normalizedEmployeeId,
       departmentId: selectedDept.id,
-      designation: String(designation).trim(),
     });
 
     const facultyData = {
@@ -1772,10 +1740,8 @@ export const updateAdminFaculty = async (req, res) => {
     if (isNaN(facultyId)) {
       return res.status(400).json({ success: false, message: "Invalid faculty ID" });
     }
-
-    const callerEmail = req.user?.email || "";
-    const isAdmin = req.user?.role === "ADMIN";
-    const hodDepartment = getHodDepartment(callerEmail);
+    const isAdmin = isSuperAdmin(req.user) || req.user?.role === "ADMIN";
+    const hodDepartment = await departmentCodeForUser(req.user);
     const isHod = Boolean(hodDepartment);
 
     if (!isAdmin && !isHod) {
@@ -1802,7 +1768,7 @@ export const updateAdminFaculty = async (req, res) => {
       });
     }
 
-    const { name, employeeId, department, departmentId, designation } = req.body;
+    const { name, employeeId, department, departmentId } = req.body;
 
     // HOD ISOLATION: An HOD MUST NOT be able to move faculty to another department.
     if (isHod && (department !== undefined || departmentId !== undefined)) {
@@ -1856,11 +1822,6 @@ export const updateAdminFaculty = async (req, res) => {
       facultyUpdates.employeeId = normalizedEmployeeId;
     }
 
-    // 3. Update Designation
-    if (designation !== undefined) {
-      facultyUpdates.designation = String(designation || "").trim() || null;
-    }
-
     // 4. Update Department (Super Admin can change faculty department to any valid department in PostgreSQL)
     if (isAdmin && (department !== undefined || departmentId !== undefined)) {
       const deptQuery = String(department || "").trim();
@@ -1905,8 +1866,6 @@ export const updateAdminFaculty = async (req, res) => {
       department: updatedDept?.name || currentDept?.name,
       departmentCode: updatedDept?.code || currentDept?.code,
       departmentId: updatedDept?.id || faculty.departmentId,
-      designation:
-        facultyUpdates.designation !== undefined ? facultyUpdates.designation : faculty.designation,
     };
 
     return res.status(200).json({
@@ -1934,10 +1893,8 @@ export const deleteAdminFaculty = async (req, res) => {
     if (isNaN(facultyId)) {
       return res.status(400).json({ success: false, message: "Invalid faculty ID" });
     }
-
-    const callerEmail = req.user?.email || "";
-    const isAdmin = req.user?.role === "ADMIN";
-    const hodDepartment = getHodDepartment(callerEmail);
+    const isAdmin = isSuperAdmin(req.user) || req.user?.role === "ADMIN";
+    const hodDepartment = await departmentCodeForUser(req.user);
     const isHod = Boolean(hodDepartment);
 
     if (!isAdmin && !isHod) {
@@ -2018,9 +1975,8 @@ export const deleteAdminFaculty = async (req, res) => {
  */
 export const exportAdminFaculty = async (req, res) => {
   try {
-    const callerEmail = req.user?.email;
-    const isAdmin = req.user?.role === "ADMIN";
-    const hodDepartment = getHodDepartment(callerEmail);
+    const isAdmin = isSuperAdmin(req.user) || req.user?.role === "ADMIN";
+    const hodDepartment = await departmentCodeForUser(req.user);
     const isHod = Boolean(hodDepartment);
 
     if (!isAdmin && !isHod) {
@@ -2056,15 +2012,17 @@ export const exportAdminFaculty = async (req, res) => {
         employeeId: f.employeeId,
         department: d?.name || "Unknown",
         departmentCode: d?.code || "Unknown",
+        departmentId: f.departmentId,
         designation: f.designation || "N/A",
       };
     });
 
     if (targetDepartment) {
-      list = list.filter(
-        (f) =>
-          f.departmentCode.toUpperCase() === targetDepartment.toUpperCase() ||
-          f.department.toLowerCase().includes(targetDepartment.toLowerCase())
+      list = list.filter((f) =>
+        hodDepartment
+          ? Number(f.departmentId) === Number(req.user.departmentId)
+          : f.departmentCode.toUpperCase() === targetDepartment.toUpperCase() ||
+            f.department.toLowerCase().includes(targetDepartment.toLowerCase())
       );
     }
 
@@ -2169,8 +2127,7 @@ export const exportAdminFaculty = async (req, res) => {
  */
 export const exportAdminStudents = async (req, res) => {
   try {
-    const callerEmail = req.user?.email;
-    const hodDepartment = getHodDepartment(callerEmail);
+    const hodDepartment = await departmentCodeForUser(req.user);
 
     let targetDepartment = null;
     if (hodDepartment) {
@@ -2344,7 +2301,3 @@ export const exportAdminStudents = async (req, res) => {
     });
   }
 };
-
-
-
-

@@ -1,8 +1,15 @@
 import { db } from "../prisma/db.js";
+import { recordAudit } from "../utils/audit.js";
 
 export const getClasses = async (req, res) => {
   try {
-    const classes = await db.orm.public.Class.all();
+    let classes = await db.orm.public.Class.all();
+    if (req.user.role === "ADMIN") {
+      classes = classes.filter((item) => item.departmentId === Number(req.user.departmentId));
+    } else if (req.user.role === "FACULTY") {
+      const faculty = (await db.orm.public.Faculty.where({ userId: Number(req.user.id) }).all())[0];
+      classes = faculty ? classes.filter((item) => item.facultyId === faculty.id) : [];
+    }
 
     res.status(200).json({
       success: true,
@@ -15,6 +22,71 @@ export const getClasses = async (req, res) => {
       success: false,
       message: "Failed to fetch classes",
     });
+  }
+};
+
+const canManageClass = (user, classItem) =>
+  user.role === "SUPER_ADMIN" || Number(user.departmentId) === Number(classItem.departmentId);
+
+const getClassReferences = async (subjectId, facultyId, departmentId) => {
+  const [subjects, faculty, departments] = await Promise.all([
+    db.orm.public.Subject.all(),
+    db.orm.public.Faculty.all(),
+    db.orm.public.Department.all(),
+  ]);
+  const subject = subjects.find((item) => item.id === Number(subjectId));
+  const selectedFaculty = faculty.find((item) => item.id === Number(facultyId));
+  const department = departments.find((item) => item.id === Number(departmentId));
+  return { subject, selectedFaculty, department };
+};
+
+export const updateClass = async (req, res) => {
+  try {
+    const classId = Number(req.params.id);
+    const classes = await db.orm.public.Class.all();
+    const classItem = classes.find((item) => item.id === classId);
+    if (!classItem) return res.status(404).json({ success: false, message: "Class not found" });
+    if (!canManageClass(req.user, classItem)) return res.status(403).json({ success: false, message: "You are not authorized to update classes from other departments" });
+
+    const target = {
+      subjectId: req.body.subjectId === undefined ? classItem.subjectId : Number(req.body.subjectId),
+      facultyId: req.body.facultyId === undefined ? classItem.facultyId : Number(req.body.facultyId),
+      departmentId: req.body.departmentId === undefined ? classItem.departmentId : Number(req.body.departmentId),
+      semester: req.body.semester === undefined ? classItem.semester : Number(req.body.semester),
+      section: req.body.section === undefined ? classItem.section : String(req.body.section).trim(),
+      academicYear: req.body.academicYear === undefined ? classItem.academicYear : String(req.body.academicYear).trim(),
+    };
+    if (req.user.role === "ADMIN" && target.departmentId !== Number(req.user.departmentId)) return res.status(403).json({ success: false, message: "HODs cannot move classes to another department" });
+    if (!Number.isInteger(target.semester) || target.semester < 1 || target.semester > 8 || !target.section || !target.academicYear) return res.status(400).json({ success: false, message: "Valid semester, section, and academic year are required" });
+    const { subject, selectedFaculty, department } = await getClassReferences(target.subjectId, target.facultyId, target.departmentId);
+    if (!subject || !selectedFaculty || !department) return res.status(404).json({ success: false, message: "Class subject, faculty, or department not found" });
+    if (subject.departmentId !== target.departmentId || selectedFaculty.departmentId !== target.departmentId) return res.status(400).json({ success: false, message: "Class faculty, subject, and department must match" });
+    const updated = await db.orm.public.Class.where({ id: classId }).update(target);
+    await recordAudit(req, "UPDATE", "CLASS", classId, { departmentId: target.departmentId });
+    return res.status(200).json({ success: true, message: "Class updated successfully", data: updated });
+  } catch (error) {
+    console.error("Error updating class:", error);
+    return res.status(500).json({ success: false, message: "Failed to update class" });
+  }
+};
+
+export const deleteClass = async (req, res) => {
+  try {
+    const classId = Number(req.params.id);
+    const classes = await db.orm.public.Class.all();
+    const classItem = classes.find((item) => item.id === classId);
+    if (!classItem) return res.status(404).json({ success: false, message: "Class not found" });
+    if (!canManageClass(req.user, classItem)) return res.status(403).json({ success: false, message: "You are not authorized to delete classes from other departments" });
+    const [enrollments, timetable, sessions] = await Promise.all([
+      db.orm.public.Enrollment.all(), db.orm.public.Timetable.all(), db.orm.public.AttendanceSession.all(),
+    ]);
+    if (enrollments.some((item) => item.classId === classId) || timetable.some((item) => item.classId === classId) || sessions.some((item) => item.classId === classId)) return res.status(409).json({ success: false, message: "Class cannot be deleted while it has enrollments, timetable entries, or attendance sessions" });
+    await db.orm.public.Class.where({ id: classId }).delete();
+    await recordAudit(req, "DELETE", "CLASS", classId, { departmentId: classItem.departmentId });
+    return res.status(200).json({ success: true, message: "Class deleted successfully" });
+  } catch (error) {
+    console.error("Error deleting class:", error);
+    return res.status(500).json({ success: false, message: "Failed to delete class" });
   }
 };
 
@@ -83,6 +155,20 @@ export const createClass = async (req, res) => {
       });
     }
 
+    if (req.user.role === "ADMIN" && Number(departmentId) !== Number(req.user.departmentId)) {
+      return res.status(403).json({
+        success: false,
+        message: "HODs can create classes only in their own department",
+      });
+    }
+
+    if (selectedFaculty.departmentId !== Number(departmentId) || subject.departmentId !== Number(departmentId)) {
+      return res.status(400).json({
+        success: false,
+        message: "Class faculty, subject, and department must match",
+      });
+    }
+
     // Create class
     const newClass = await db.orm.public.Class.create({
       subjectId: Number(subjectId),
@@ -98,6 +184,7 @@ export const createClass = async (req, res) => {
       message: "Class created successfully",
       data: newClass,
     });
+    await recordAudit(req, "CREATE", "CLASS", newClass.id, { departmentId: newClass.departmentId });
   } catch (error) {
     console.error("Error creating class:", error);
 

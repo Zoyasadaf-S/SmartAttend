@@ -1,21 +1,58 @@
 import jwt from "jsonwebtoken";
+import { db } from "../prisma/db.js";
 
-export const authenticate = (req, res, next) => {
+export const authenticate = async (req, res, next) => {
   try {
-    const authHeader = req.headers.authorization;
+    let token = null;
 
-    if (!authHeader || !authHeader.startsWith("Bearer ")) {
+    // 1. Check for Bearer token in Authorization header (for Mobile/Common APIs)
+    const authHeader = req.headers.authorization;
+    if (authHeader && authHeader.startsWith("Bearer ")) {
+      token = authHeader.split(" ")[1];
+    }
+    // 2. Fallback to sa_admin_session cookie (for Admin Portal)
+    else if (req.cookies?.sa_admin_session) {
+      token = req.cookies.sa_admin_session;
+    }
+
+    if (!token) {
       return res.status(401).json({
         success: false,
-        message: "Authentication token is required",
+        message: "Authentication required",
       });
     }
 
-    const token = authHeader.split(" ")[1];
-
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    const users = await db.orm.public.User.where({ id: Number(decoded.id) }).all();
+    const user = users[0];
 
-    req.user = decoded;
+    if (!user || !user.isActive) {
+      return res.status(401).json({
+        success: false,
+        message: "Invalid or inactive account",
+      });
+    }
+
+    if (
+      decoded.sessionVersion !== undefined &&
+      Number(decoded.sessionVersion) !== Number(user.sessionVersion || 0)
+    ) {
+      return res.status(401).json({
+        success: false,
+        message: "Authentication session is no longer valid",
+      });
+    }
+
+    // Authorization scope comes from the current database row, never the client token.
+    req.user = {
+      ...decoded,
+      id: user.id,
+      email: user.email,
+      role: user.role,
+      departmentId: user.departmentId,
+      isDeveloperAccount: user.isDeveloperAccount === true,
+      sessionVersion: user.sessionVersion || 0,
+    };
 
     next();
   } catch (error) {
